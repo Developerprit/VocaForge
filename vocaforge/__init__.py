@@ -5,7 +5,7 @@ interface so that real DiffSinger inference can be wired in on GPU machines,
 while a stub backend keeps the framework runnable (and testable) without models.
 """
 
-__version__ = "0.4.0"
+__version__ = "0.4.2"
 
 from .core.engine import VocaForgeEngine
 from .core.backend import Backend

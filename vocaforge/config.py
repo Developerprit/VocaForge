@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 
-VERSION = "0.4.0"
+VERSION = "0.4.2"
 
 # Default RPC bind for `vf-cli serve`
 DEFAULT_RPC_HOST = "127.0.0.1"
