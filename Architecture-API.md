@@ -1,6 +1,6 @@
 # VocaForge Architecture API
 
-> Version: 1.0 (targets VocaForge `>=0.2.0`)
+> Version: 1.0 (targets VocaForge `>=0.3.0`)
 > Audience: developers integrating VocaForge into their own project or calling it over HTTP.
 
 VocaForge is a *framework*, not a closed app. The Architecture API is the stable,
@@ -78,8 +78,17 @@ class DbModelLoader(ModelLoader):
 engine.register_model_loader(DbModelLoader())
 ```
 
-The default `LocalModelLoader` validates that `spec.path` exists on disk (an empty path
-is allowed — e.g. the stub backend needs no weights).
+**Loader routing.** The engine keeps an ordered chain of loaders and sends each spec to
+the first loader whose `supports(spec)` returns `True` (override it to narrow a loader to
+certain specs — the base returns `True`). Registering a loader appends it to the chain.
+
+**Built-in loaders.**
+- `LocalModelLoader` (default) — validates that `spec.path` exists on disk (an empty path
+  is allowed — e.g. the stub backend needs no weights).
+- `VfvpModelLoader` — handles `spec.path` ending in `.vfvp` (the standard-7z voice-library
+  package): extracts to a temp dir and exposes the canonical assets below. Registered by
+  default; `engine.discover(dir)` / `vf-cli models` auto-scan a directory for `*.vfvp` and
+  register them from their `info.json`.
 
 ### 1.3 `ModelArtifact`
 
@@ -91,12 +100,28 @@ The object passed from `ModelLoader.load()` to `Backend.load_model()`.
 | `assets` | `dict` | resolved storage (paths / URIs / handles) |
 | `meta` | `dict` | loader-provided extras (e.g. `{"src": "db"}`) |
 
+**Assets produced for a `.vfvp` package** (`VfvpModelLoader`):
+
+| Key | Extracted file |
+|-----|----------------|
+| `root` | temp extraction dir |
+| `acoustic` | `model/acoustic.pth` |
+| `vocoder` | `model/vocoder.pth` |
+| `config` | `model/config.json` |
+| `phoneme_map` | `phoneme_map.json` |
+| `info` | `info.json` |
+
+A `Backend` implementing real DiffSinger inference reads these paths from
+`artifact.assets` (see `DiffSingerAdapter.load_model`).
+
 ### 1.4 `VocaForgeEngine` public methods
 
 | Method | Purpose |
 |--------|---------|
 | `register_backend(backend)` | plug a custom `Backend` (selected by `backend.name`) |
-| `register_model_loader(loader)` | install a custom `ModelLoader` |
+| `register_model_loader(loader)` | append a custom `ModelLoader` to the routing chain |
+| `list_loaders()` | names of loaders in the routing chain |
+| `discover(dir=None)` | scan `dir` (default: manifest dir) for `*.vfvp` and register them |
 | `add_model(spec)` | register a voice library at runtime |
 | `resolve(key)` / `exists(key)` | look up a library by id or name |
 | `list_models()` / `list_backends()` | enumerate |
@@ -124,6 +149,10 @@ vf-cli api --host 0.0.0.0 --port 8080
 | POST | `/api/v1/resolve` | resolve id → spec | 200 | 404 |
 | POST | `/api/v1/synth` | synthesize → WAV | 200 | 404 |
 | GET | `/api/v1/openapi.json` | OpenAPI 3.0 document | 200 | — |
+
+> `POST /api/v1/models` accepts either a full `ModelSpec` JSON **or** just a
+> `{"path": "/x/voice.vfvp"}` — in the latter case the spec is filled from the package's
+> `info.json` automatically.
 
 ### 2.2 `synth` details
 

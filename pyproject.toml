@@ -4,12 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vocaforge"
-version = "0.1.0"
+version = "0.3.0"
 description = "Pure Python framework wrapping DiffSinger for AI singing voice synthesis, with vf-cli for AI Agents."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "Available License" }
 dependencies = []
+# 7z support for the .vfvp voice-library format is OPTIONAL and lazy-loaded, so the
+# core stays dependency-free. Install when you actually pack or load .vfvp packages:
+#     pip install "vocaforge[vfvp]"
+[project.optional-dependencies]
+vfvp = ["py7zr>=0.20"]
 
 [project.scripts]
 vf-cli = "vocaforge.cli.vf_cli:main"

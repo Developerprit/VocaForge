@@ -24,7 +24,8 @@ Agent / CLI  ──JSON──►  VocaForgeEngine  ──►  模型注册表 (m
   零模型情况下也能完整运行与自测。
 - **对 Agent 友好。** `vf-cli`（英文输出）与 HTTP RPC（`POST /vf`）让 Agent 列声库、解析模型
   （缺失→404，命中→103）、合成音频。
-- **零重依赖。** 核心仅用 Python 标准库；DiffSinger 为可选懒加载依赖。
+- **零重依赖。** 核心仅用 Python 标准库；DiffSinger 与 `py7zr`（`.vfvp` 声库格式所需）均为
+  可选懒加载依赖。
 
 ## 安装
 
@@ -57,7 +58,10 @@ with open("out.wav", "wb") as fh:
 | 命令 | 说明 |
 |------|------|
 | `vf-cli info` | 显示版本、Python、后端可用性 |
-| `vf-cli models` | 列出已注册声库 |
+| `vf-cli models` | 列出已注册声库（自动扫描 `*.vfvp`） |
+| `vf-cli models add <path.vfvp>` | 注册一个 `.vfvp` 包（自动读取其 `info.json`） |
+| `vf-cli models remove <id>` | 移除已注册声库 |
+| `vf-cli package --source <dir> --out <x.vfvp>` | 把文件夹打包为 `.vfvp` 声库 |
 | `vf-cli synth --model <id> --lyrics <text> --out <wav>` | 由歌词合成 |
 | `vf-cli export --project <json> --model <id> --out <wav>` | 由工程 JSON 导出 |
 | `vf-cli serve --host 127.0.0.1 --port 8765` | 启动 Agent RPC 服务 |
@@ -85,6 +89,46 @@ vf-cli synth --model stub-zh --lyrics "你好世界" --out hello.wav
 | 200 | 200 | 成功（如合成完成） |
 
 动作：`info`、`models`、`resolve`/`load`、`synth`。
+
+## 声库格式（`.vfvp`）
+
+声库以 **`.vfvp` 包分发 —— 本质是标准 7z 压缩包**，内部布局固定（可用 7-Zip / py7zr 打开）：
+
+```text
+voice.vfvp  (= 标准 .7z)
+├── model/
+│   ├── acoustic.pth      # DiffSinger 声学模型
+│   ├── vocoder.pth       # 声码器
+│   └── config.json       # 模型结构配置
+├── info.json             # 声库元信息：id/name/type/lang/sample_rate/backend/...
+└── phoneme_map.json      # 音素映射表
+```
+
+`info.json` 驱动注册，因此**无需手写 manifest 项**：把 `.vfvp` 丢进 `models/` 会自动发现，
+也可显式注册。
+
+```bash
+# 把符合上述布局的文件夹打包成声库
+vf-cli package --source ./voice_dir --out voice.vfvp
+
+# 注册 + 列出（自动读 info.json）
+vf-cli models add voice.vfvp
+vf-cli models
+
+# 或走 Python
+from vocaforge import VfvpPackage, VocaForgeEngine
+VfvpPackage.create("./voice_dir", "voice.vfvp")
+engine = VocaForgeEngine()
+engine.registry.spec_from_vfvp("voice.vfvp")   # -> 依据 info.json 自动填好的 ModelSpec
+```
+
+加载由 `VfvpModelLoader`（引擎默认注册）处理：当已注册 `ModelSpec.path` 以 `.vfvp`
+结尾时，引擎自动路由到它，解包到临时目录并把规范文件（`acoustic` / `vocoder` /
+`config` / `phoneme_map` / `info`）交给 `Backend.load_model`。
+
+> 需要 `pip install py7zr`（或 `pip install "vocaforge[vfvp]"`）。核心保持零依赖 —— 只在
+> 真正打包/加载 `.vfvp` 时才引入 7z 支持。完整流程见 `examples/vfvp_demo.py`
+> （打包 → 校验 → 加载 → 合成）。
 
 ## Architecture API（让别人接入）
 
@@ -159,7 +203,14 @@ wav: bytes = client.synth(model="stub-zh", lyrics="你好世界", as_wav=True)
 
 ## 注册真实 DiffSinger 声库
 
-在 `models/manifest.json` 增加一项，并在 `vocaforge/backends/diffsinger.py` 实现推理：
+推荐做法是 `.vfvp` 包（见上文）：把声学/声码器权重打成一个包再注册，无需手改 manifest：
+
+```bash
+vf-cli package --source ./my_lib_dir --out my-lib.vfvp
+vf-cli models add my-lib.vfvp
+```
+
+未打包的原始目录布局也仍支持：
 
 ```json
 {
@@ -193,18 +244,19 @@ python build_vf_cli.py        # -> dist/vf-cli.exe
 ```
 VocaForge/
 ├── vocaforge/            # 框架库
-│   ├── core/             # 引擎、后端接口、模型加载器、异常
+│   ├── core/             # 引擎、后端接口、模型加载器链、异常
 │   ├── backends/         # diffsinger 适配器 + stub 后端
-│   ├── models/           # 注册表 + manifest
+│   ├── models/           # 注册表 + manifest + .vfvp 自动发现
 │   ├── synth/            # SynthProject（音符/歌词/时长）
 │   ├── api/              # Agent RPC（404/103）+ Architecture REST（/api/v1）+ OpenAPI
 │   ├── cli/              # vf-cli
 │   ├── client.py         # VocaForgeClient（REST 客户端 SDK）
+│   ├── vfvp.py           # .vfvp 声库格式（7z）打包/加载/校验
 │   └── util/             # WAV 编码
 ├── vf_cli.py             # 命令行入口
 ├── build_vf_cli.py       # Nuitka 打包脚本
 ├── models/manifest.json  # 本地声库注册表
-├── examples/             # 示例 + RPC 客户端 + 接入示例
+├── examples/             # 示例 + RPC 客户端 + 接入示例 + .vfvp 示例
 ├── README.md / README-zh.md
 ├── LICENSE               # Available License
 └── index.html            # 对外公开落地页

@@ -6,6 +6,7 @@ of crashing at import time. Wire real acoustic/vocoder inference here.
 """
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from ..core.backend import Backend
@@ -23,21 +24,47 @@ class DiffSingerAdapter(Backend):
         except ImportError as exc:  # pragma: no cover - depends on env
             raise VFMissingBackendError(
                 "diffsinger is not installed. Install it with: pip install diffsinger\n"
-                "Then register a model in models/manifest.json pointing at your "
-                "acoustic + vocoder checkpoints."
+                "Then register a model in models/manifest.json (or a .vfvp package) "
+                "pointing at your acoustic + vocoder checkpoints."
             ) from exc
         return __import__("diffsinger")
 
     def load_model(self, artifact: ModelArtifact) -> Any:
-        spec = artifact.spec if isinstance(artifact, ModelArtifact) else artifact
         ds = self._require_diffsinger()
         if not ds:  # pragma: no cover
             raise VFMissingBackendError("diffsinger import returned empty")
+        spec = artifact.spec if isinstance(artifact, ModelArtifact) else artifact
+
         # --- integration point -------------------------------------------------
-        # Real loading would build a diffsinger fs2/acoustic + vocoder pipeline from
-        # artifact.assets / spec.extra. We validate the spec and return a lightweight
-        # handle; heavy GPU work happens lazily inside synthesize().
-        return {"spec": spec, "backend": self.name, "assets": getattr(artifact, "assets", {})}
+        # Consume the resolved assets produced by the active ModelLoader. For a .vfvp
+        # package these are the extracted canonical files; for a raw path layout they are
+        # whatever LocalModelLoader exposed. We surface them on the handle so real
+        # inference has everything it needs (paths to acoustic/vocoder/config/phoneme_map).
+        assets = getattr(artifact, "assets", {}) or {}
+        handle = {
+            "spec": spec,
+            "backend": self.name,
+            "acoustic": assets.get("acoustic"),
+            "vocoder": assets.get("vocoder"),
+            "config": assets.get("config"),
+            "phoneme_map": assets.get("phoneme_map"),
+            "info": assets.get("info"),
+        }
+
+        # When this is a real .vfvp / DiffSinger spec, validate the model files exist so
+        # failures are reported at load time rather than deep inside inference.
+        if str(getattr(spec, "backend", "auto")).lower() == "diffsinger":
+            missing = [
+                k for k in ("acoustic", "vocoder", "config")
+                if not (handle[k] and os.path.exists(handle[k]))
+            ]
+            if missing:
+                raise VFMissingBackendError(
+                    f"vfvp is missing required model files: {missing}. "
+                    f"Check that model/acoustic.pth, model/vocoder.pth and model/config.json "
+                    f"are present in the package."
+                )
+        return handle
 
     def synthesize(self, project: Any, handle: Any) -> bytes:
         # Real inference: diffsinger(fs2/ds) -> vocoder -> waveform.

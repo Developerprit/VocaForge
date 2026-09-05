@@ -25,7 +25,8 @@ Agent / CLI  ──JSON──►  VocaForgeEngine  ──►  ModelRegistry (mod
   `StubBackend` keeps the framework fully runnable (and testable) with zero models.
 - **Agent-friendly.** `vf-cli` (English output) and an HTTP RPC (`POST /vf`) let an AI Agent list voice
   libraries, resolve a model (404 if missing, 103 if loaded), and synthesize audio.
-- **Zero heavy deps.** Core uses only the Python standard library; DiffSinger is an optional, lazy import.
+- **Zero heavy deps.** Core uses only the Python standard library; DiffSinger and
+  `py7zr` (needed for the `.vfvp` voice-library format) are optional, lazy imports.
 
 ## Install
 
@@ -58,7 +59,10 @@ with open("out.wav", "wb") as fh:
 | Command | Description |
 |---------|-------------|
 | `vf-cli info` | Show version, Python, and backend availability |
-| `vf-cli models` | List registered voice libraries |
+| `vf-cli models` | List registered voice libraries (auto-scans `*.vfvp`) |
+| `vf-cli models add <path.vfvp>` | Register a `.vfvp` package (reads its `info.json`) |
+| `vf-cli models remove <id>` | Remove a registered library |
+| `vf-cli package --source <dir> --out <x.vfvp>` | Pack a folder into a `.vfvp` library |
 | `vf-cli synth --model <id> --lyrics <text> --out <wav>` | Synthesize from lyrics |
 | `vf-cli export --project <json> --model <id> --out <wav>` | Export from a project JSON |
 | `vf-cli serve --host 127.0.0.1 --port 8765` | Start the Agent RPC server |
@@ -87,6 +91,48 @@ status, so 103 is surfaced inside the envelope):
 | 200 | 200 | success (e.g. synthesis complete) |
 
 Actions: `info`, `models`, `resolve`/`load`, `synth`.
+
+## Voice libraries (`.vfvp`)
+
+A voice library is distributed as a **`.vfvp` package — a standard 7z archive** with a
+fixed layout (open it with 7-Zip / py7zr, it is a normal `.7z`):
+
+```text
+voice.vfvp  (= standard .7z)
+├── model/
+│   ├── acoustic.pth      # DiffSinger acoustic model
+│   ├── vocoder.pth       # vocoder
+│   └── config.json       # model structure config
+├── info.json             # library meta: id/name/type/lang/sample_rate/backend/...
+└── phoneme_map.json      # phoneme -> token mapping
+```
+
+`info.json` drives registration, so you never hand-write a manifest entry: drop a
+`.vfvp` into `models/` and it is auto-discovered, or register it explicitly.
+
+```bash
+# build a library from a folder that follows the layout above
+vf-cli package --source ./voice_dir --out voice.vfvp
+
+# register + list (reads info.json for you)
+vf-cli models add voice.vfvp
+vf-cli models
+
+# or from Python
+from vocaforge import VfvpPackage, VocaForgeEngine
+VfvpPackage.create("./voice_dir", "voice.vfvp")
+engine = VocaForgeEngine()
+engine.registry.spec_from_vfvp("voice.vfvp")   # -> ModelSpec filled from info.json
+```
+
+Loading is handled by `VfvpModelLoader` (registered in the engine by default): when a
+registered `ModelSpec.path` ends with `.vfvp`, the engine routes it there, extracts the
+archive to a temp dir and hands `Backend.load_model` canonical assets
+(`acoustic` / `vocoder` / `config` / `phoneme_map` / `info`).
+
+> Requires `pip install py7zr` (or `pip install "vocaforge[vfvp]"`). The core stays
+> dependency-free — 7z support is loaded only when a `.vfvp` is actually packed or loaded.
+> See `examples/vfvp_demo.py` for the full pack → validate → load → synthesize flow.
 
 ## Architecture API (let others integrate)
 
@@ -161,7 +207,15 @@ Full contract, versioning, and integration guide: [Architecture-API.md](./Archit
 
 ## Registering a real DiffSinger library
 
-Add an entry to `models/manifest.json` and implement inference in `vocaforge/backends/diffsinger.py`:
+The recommended path is a `.vfvp` package (see above): pack your acoustic/vocoder
+checkpoints into one, then register it — no manifest hand-editing:
+
+```bash
+vf-cli package --source ./my_lib_dir --out my-lib.vfvp
+vf-cli models add my-lib.vfvp
+```
+
+Manifest entries are still supported for raw (non-packaged) layouts:
 
 ```json
 {
@@ -195,18 +249,19 @@ to author VocaForge had no C compiler, so the executable is built on the dev mac
 ```
 VocaForge/
 ├── vocaforge/            # the framework library
-│   ├── core/             # engine, backend interface, model loader, exceptions
+│   ├── core/             # engine, backend interface, model loader chain, exceptions
 │   ├── backends/         # diffsinger adapter + stub backend
-│   ├── models/           # registry + manifest
+│   ├── models/           # registry + manifest + .vfvp discovery
 │   ├── synth/            # SynthProject (notes/lyrics/durations)
 │   ├── api/              # Agent RPC (404/103) + Architecture REST (/api/v1) + OpenAPI
 │   ├── cli/              # vf-cli
 │   ├── client.py         # VocaForgeClient (REST client SDK)
+│   ├── vfvp.py           # .vfvp voice-library format (7z) pack/load/validate
 │   └── util/             # WAV encoder
 ├── vf_cli.py             # console entry point
 ├── build_vf_cli.py       # Nuitka build script
 ├── models/manifest.json  # local voice-library registry
-├── examples/             # demo + rpc client + integration examples
+├── examples/             # demo + rpc client + integration + .vfvp examples
 ├── README.md / README-zh.md
 ├── LICENSE               # Available License
 └── index.html            # public landing page

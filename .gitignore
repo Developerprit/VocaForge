@@ -10,6 +10,10 @@ dist/
 *.wav
 examples/*.wav
 
+# Generated .vfvp voice-library packages (build artifacts)
+*.vfvp
+examples/*.vfvp
+
 # Local workspace memory (not part of the project)
 .workbuddy/
 

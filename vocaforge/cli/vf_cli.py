@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from typing import List, Optional
 
@@ -25,8 +26,18 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("info", help="show version and backend availability")
 
-    models = sub.add_parser("models", help="list registered voice libraries")
-    models.add_argument("action", nargs="?", default="list", choices=["list"])
+    models = sub.add_parser("models", help="list/register/remove voice libraries")
+    models_sub = models.add_subparsers(dest="models_action", required=False)
+    models_sub.add_parser("list", help="list registered libraries")
+    models_add = models_sub.add_parser("add", help="register a .vfvp package")
+    models_add.add_argument("path", help="path to a .vfvp file")
+    models_remove = models_sub.add_parser("remove", help="remove a registered library by id/name")
+    models_remove.add_argument("key", help="model id or name")
+
+    package = sub.add_parser("package", help="pack a folder into a .vfvp (7z) voice library")
+    package.add_argument("--source", required=True, help="source folder with model/, info.json, phoneme_map.json")
+    package.add_argument("--out", default=None, help="output .vfvp path (default: <source>.vfvp)")
+    package.add_argument("--overwrite", action="store_true", help="overwrite an existing output file")
 
     synth = sub.add_parser("synth", help="synthesize audio from lyrics/project")
     synth.add_argument("--model", required=True, help="model id or name")
@@ -78,12 +89,59 @@ def cmd_info(args) -> int:
 
 
 def cmd_models(args) -> int:
+    action = getattr(args, "models_action", None) or "list"
+    if action == "add":
+        return _cmd_models_add(args)
+    if action == "remove":
+        return _cmd_models_remove(args)
+    # default: list (auto-discover *.vfvp in the models dir)
     engine = VocaForgeEngine()
+    engine.discover()
     specs = engine.list_models()
     if not specs:
-        print("no registered models. add one to models/manifest.json")
+        print("no registered models. add one with: vf-cli models add <path.vfvp>")
         return 0
     _print_json({"count": len(specs), "models": [s.to_dict() for s in specs]})
+    return 0
+
+
+def _cmd_models_add(args) -> int:
+    engine = VocaForgeEngine()
+    try:
+        spec = engine.registry.spec_from_vfvp(args.path)
+    except VocaForgeError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    engine.add_model(spec)
+    _print_json({"added": True, "model": spec.to_dict()})
+    return 0
+
+
+def _cmd_models_remove(args) -> int:
+    engine = VocaForgeEngine()
+    try:
+        engine.registry.remove(args.key)
+    except Exception as e:  # noqa: BLE001
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    print(f"ok: removed {args.key}")
+    return 0
+
+
+def cmd_package(args) -> int:
+    from ..vfvp import VfvpPackage, VfvpError
+
+    out = args.out or (os.path.splitext(args.source)[0] + ".vfvp")
+    try:
+        pkg = VfvpPackage.create(args.source, out, overwrite=args.overwrite)
+    except VfvpError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    rep = pkg.report()
+    print(f"ok: packaged {args.source} -> {out}")
+    print(f"    valid: {rep['valid']}  members: {len(rep['members'])}")
+    if not rep["valid"]:
+        print(f"    missing: {rep['missing']}")
     return 0
 
 
@@ -153,6 +211,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     handlers = {
         "info": cmd_info,
         "models": cmd_models,
+        "package": cmd_package,
         "synth": cmd_synth,
         "export": cmd_export,
         "serve": cmd_serve,

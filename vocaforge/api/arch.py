@@ -126,7 +126,7 @@ class _Handler(BaseHTTPRequestHandler):
             "status": "ok",
             "version": _version(),
             "backends": engine.list_backends(),
-            "loaders": [engine.model_loader.name],
+            "loaders": engine.list_loaders(),
         }
 
     def _get_model(self, mid: str) -> None:
@@ -139,12 +139,24 @@ class _Handler(BaseHTTPRequestHandler):
         self._send_json(200, {"model": spec.to_dict()})
 
     def _post_model(self, req: Dict[str, Any]) -> None:
-        try:
-            spec = ModelSpec.from_dict(req)
-        except Exception as exc:  # noqa: BLE001
-            self._send_json(400, {"error": f"invalid model spec: {exc}"})
-            return
-        self._engine().add_model(spec)
+        engine = self._engine()
+        # Convenience: if `path` points at a .vfvp, fill the spec from its info.json.
+        path = req.get("path") or ""
+        if isinstance(path, str) and path.lower().endswith(".vfvp"):
+            try:
+                spec = engine.registry.spec_from_vfvp(path)
+                # Allow request fields to override the packaged meta (e.g. a display alias).
+                spec = ModelSpec.from_dict({**spec.to_dict(), **req})
+            except Exception as exc:  # noqa: BLE001
+                self._send_json(400, {"error": f"invalid .vfvp: {exc}"})
+                return
+        else:
+            try:
+                spec = ModelSpec.from_dict(req)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json(400, {"error": f"invalid model spec: {exc}"})
+                return
+        engine.add_model(spec)
         self._send_json(201, {"created": True, "model": spec.to_dict()})
 
     def _post_resolve(self, req: Dict[str, Any]) -> None:

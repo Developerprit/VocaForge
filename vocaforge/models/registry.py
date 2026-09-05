@@ -10,6 +10,21 @@ from ..config import default_manifest_path
 from .manifest import ModelSpec
 
 
+def _spec_from_info(info: Dict[str, Any], path: str) -> ModelSpec:
+    """Build a :class:`ModelSpec` from a ``.vfvp`` ``info.json`` dict + archive path."""
+    base = os.path.splitext(os.path.basename(path))[0]
+    return ModelSpec(
+        id=info.get("id") or base,
+        name=info.get("name") or base,
+        type=info.get("type", "synthesizer"),
+        path=path,
+        sample_rate=int(info.get("sample_rate", 44100)),
+        lang=info.get("lang", "zh"),
+        backend=info.get("backend", "diffsinger"),
+        extra=info.get("extra", {}),
+    )
+
+
 class ModelRegistry:
     """Maps model id/name -> ModelSpec, persisted as JSON."""
 
@@ -70,3 +85,39 @@ class ModelRegistry:
                     del self._specs[sid]
                     break
         self.save()
+
+    # ---- .vfvp support ------------------------------------------------------
+    def spec_from_vfvp(self, path: str) -> ModelSpec:
+        """Read ``info.json`` from a ``.vfvp`` and build a :class:`ModelSpec`."""
+        from ..vfvp import VfvpError, read_info
+
+        if not os.path.exists(path):
+            raise VFModelNotFound(f"vfvp not found: {path}")
+        try:
+            info = read_info(path)
+        except VfvpError as exc:
+            raise VFModelNotFound(f"cannot read {path}: {exc}") from exc
+        return _spec_from_info(info, path)
+
+    def discover_vfvp(self, search_dir: str) -> List[ModelSpec]:
+        """Scan ``search_dir`` for ``*.vfvp`` and register each not already known.
+
+        Returns the list of newly discovered specs (skips unreadable archives).
+        """
+        from ..vfvp import VfvpError
+
+        discovered: List[ModelSpec] = []
+        if not os.path.isdir(search_dir):
+            return discovered
+        for fn in sorted(os.listdir(search_dir)):
+            if not fn.lower().endswith(".vfvp"):
+                continue
+            ap = os.path.join(search_dir, fn)
+            try:
+                spec = self.spec_from_vfvp(ap)
+            except (VFModelNotFound, VfvpError):
+                continue
+            if spec.id not in self._specs:
+                self._specs[spec.id] = spec
+                discovered.append(spec)
+        return discovered

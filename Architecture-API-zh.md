@@ -1,6 +1,6 @@
 # VocaForge Architecture API（中文）
 
-> 版本：1.0（对应 VocaForge `>=0.2.0`）
+> 版本：1.0（对应 VocaForge `>=0.3.0`）
 > 读者：要在自己项目里接入 VocaForge，或通过 HTTP 调用它的开发者。
 
 VocaForge 是个**框架**，不是封闭应用。Architecture API 是其他人可在其上构建的、稳定且
@@ -74,8 +74,16 @@ class DbModelLoader(ModelLoader):
 engine.register_model_loader(DbModelLoader())
 ```
 
-默认 `LocalModelLoader` 校验 `spec.path` 存在于磁盘（允许空 path —— 例如 stub 后端不需要
-权重）。
+**加载器路由。** 引擎维护一条有序的加载器链，把每个 spec 交给第一个
+`supports(spec)` 返回 `True` 的加载器（基类返回 `True`；可覆写以收窄适用范围）。
+`register_model_loader` 把新加载器追加到链尾。
+
+**内置加载器。**
+- `LocalModelLoader`（默认）—— 校验 `spec.path` 存在于磁盘（允许空 path —— 例如 stub
+  后端不需要权重）。
+- `VfvpModelLoader` —— 处理以 `.vfvp` 结尾的 `spec.path`（标准 7z 声库包）：解包到临时
+  目录并暴露下方规范 assets。默认注册；`engine.discover(dir)` / `vf-cli models` 会自动
+  扫描目录中的 `*.vfvp` 并依据其 `info.json` 注册。
 
 ### 1.3 `ModelArtifact`
 
@@ -87,12 +95,28 @@ engine.register_model_loader(DbModelLoader())
 | `assets` | `dict` | 已解析存储（路径 / URI / 句柄） |
 | `meta` | `dict` | 加载器附加信息（如 `{"src": "db"}`） |
 
+**`.vfvp` 包产出的 assets**（`VfvpModelLoader`）：
+
+| Key | 解出的文件 |
+|-----|-----------|
+| `root` | 临时解包目录 |
+| `acoustic` | `model/acoustic.pth` |
+| `vocoder` | `model/vocoder.pth` |
+| `config` | `model/config.json` |
+| `phoneme_map` | `phoneme_map.json` |
+| `info` | `info.json` |
+
+实现真实 DiffSinger 推理的 `Backend` 从 `artifact.assets` 读取这些路径
+（参见 `DiffSingerAdapter.load_model`）。
+
 ### 1.4 `VocaForgeEngine` 公开方法
 
 | 方法 | 用途 |
 |------|------|
 | `register_backend(backend)` | 接入自定义 `Backend`（按 `backend.name` 选中） |
-| `register_model_loader(loader)` | 安装自定义 `ModelLoader` |
+| `register_model_loader(loader)` | 向路由链追加自定义 `ModelLoader` |
+| `list_loaders()` | 路由链中各加载器名 |
+| `discover(dir=None)` | 扫描 `dir`（默认 manifest 目录）中的 `*.vfvp` 并注册 |
 | `add_model(spec)` | 运行时注册声库 |
 | `resolve(key)` / `exists(key)` | 按 id 或 name 查声库 |
 | `list_models()` / `list_backends()` | 枚举 |
@@ -120,6 +144,9 @@ vf-cli api --host 0.0.0.0 --port 8080
 | POST | `/api/v1/resolve` | 解析 id → 规格 | 200 | 404 |
 | POST | `/api/v1/synth` | 合成 → WAV | 200 | 404 |
 | GET | `/api/v1/openapi.json` | OpenAPI 3.0 文档 | 200 | — |
+
+> `POST /api/v1/models` 既接受完整的 `ModelSpec` JSON，也可只传
+> `{"path": "/x/voice.vfvp"}` —— 后者会自动从包的 `info.json` 填好 spec。
 
 ### 2.2 `synth` 细节
 

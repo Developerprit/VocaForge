@@ -186,6 +186,7 @@
       <a href="#features"><span class="t-en">Features</span><span class="t-zh">特性</span></a>
       <a href="#cli">vf-cli</a>
       <a href="#rpc"><span class="t-en">Agent RPC</span><span class="t-zh">Agent 接口</span></a>
+      <a href="#vfvp">.vfvp</a>
       <a href="#api"><span class="t-en">Architecture API</span><span class="t-zh">架构 API</span></a>
       <a href="#start"><span class="t-en">Quick start</span><span class="t-zh">快速开始</span></a>
     </nav>
@@ -257,10 +258,10 @@
     <div class="feat">
       <div class="row"><div class="n">01</div><div><h3><span class="t-en">Console-free library</span><span class="t-zh">无控制台库</span></h3><p><span class="t-en">import vocaforge from any process. No window, no TTY.</span><span class="t-zh">任何进程里 import vocaforge，不弹窗、不占终端。</span></p></div></div>
       <div class="row"><div class="n">02</div><div><h3><span class="t-en">Pluggable backend</span><span class="t-zh">可插拔后端</span></h3><p><span class="t-en">Wire real DiffSinger on GPU; stub runs with zero models.</span><span class="t-zh">GPU 上接真实 DiffSinger；无模型时用 stub 照常跑。</span></p></div></div>
-      <div class="row"><div class="n">03</div><div><h3><span class="t-en">Model registry</span><span class="t-zh">声库注册表</span></h3><p><span class="t-en">manifest.json lists acoustic / vocoder libraries explicitly.</span><span class="t-zh">manifest.json 显式登记声学 / 声码器声库。</span></p></div></div>
-      <div class="row"><div class="n">04</div><div><h3><span class="t-en">vf-cli for agents</span><span class="t-zh">供 Agent 的 vf-cli</span></h3><p><span class="t-en">English-output commands: info / models / synth / export / serve / api.</span><span class="t-zh">英文输出命令：info / models / synth / export / serve / api。</span></p></div></div>
+      <div class="row"><div class="n">03</div><div><h3><span class="t-en">.vfvp libraries</span><span class="t-zh">.vfvp 声库</span></h3><p><span class="t-en">A voice library ships as one standard 7z file — pack it, drop it in, it registers itself.</span><span class="t-zh">声库以单个标准 7z 包分发——打包、丢进目录、自动注册。</span></p></div></div>
+      <div class="row"><div class="n">04</div><div><h3><span class="t-en">vf-cli for agents</span><span class="t-zh">供 Agent 的 vf-cli</span></h3><p><span class="t-en">English-output commands: info / models(add·remove) / package / synth / export / serve / api.</span><span class="t-zh">英文输出命令：info / models(add·remove) / package / synth / export / serve / api。</span></p></div></div>
       <div class="row"><div class="n">05</div><div><h3><span class="t-en">404 / 103 RPC</span><span class="t-zh">404 / 103 接口</span></h3><p><span class="t-en">Agents resolve a model: 404 absent, 103 loaded, 200 done.</span><span class="t-zh">Agent 解析声库：缺失 404、命中 103、完成 200。</span></p></div></div>
-      <div class="row"><div class="n">06</div><div><h3><span class="t-en">Zero heavy deps</span><span class="t-zh">零重依赖</span></h3><p><span class="t-en">Core is stdlib only; DiffSinger is a lazy, optional import.</span><span class="t-zh">核心仅标准库；DiffSinger 为可选懒加载。</span></p></div></div>
+      <div class="row"><div class="n">06</div><div><h3><span class="t-en">Zero heavy deps</span><span class="t-zh">零重依赖</span></h3><p><span class="t-en">Core is stdlib only; DiffSinger and py7zr (for .vfvp) are lazy, optional imports.</span><span class="t-zh">核心仅标准库；DiffSinger 与 py7zr（.vfvp 用）均为可选懒加载。</span></p></div></div>
     </div>
   </div>
 </section>
@@ -268,11 +269,13 @@
 <section id="cli">
   <div class="wrap r">
     <p class="kicker">vf-cli</p>
-    <h2><span class="t-en">Six commands. English output.</span><span class="t-zh">六个命令，英文输出。</span></h2>
+    <h2><span class="t-en">Seven commands. English output.</span><span class="t-zh">七个命令，英文输出。</span></h2>
     <div class="code">
       <button class="copy" onclick="copy(this)">copy</button>
 <span class="pr">$</span> vf-cli info                      <span class="cm"># version + backend availability</span>
-<span class="pr">$</span> vf-cli models                     <span class="cm"># list registered voice libraries</span>
+<span class="pr">$</span> vf-cli models                     <span class="cm"># list (auto-scans *.vfvp) + add/remove</span>
+<span class="pr">$</span> vf-cli package --source ./voice \
+        --out voice.vfvp              <span class="cm"># folder -> .vfvp library</span>
 <span class="pr">$</span> vf-cli synth --model stub-zh \
         --lyrics "你好世界" --out hello.wav
 <span class="pr">$</span> vf-cli export --project proj.json \
@@ -351,6 +354,37 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/synth?format=wav \
 client = VocaForgeClient("http://127.0.0.1:8080")
 wav = client.synth(model="stub-zh", lyrics="你好世界", as_wav=True)</div>
     <p style="margin-top:18px"><a class="btn ghost" href="Architecture-API.md"><span class="t-en">Full API spec →</span><span class="t-zh">完整 API 规范 →</span></a></p>
+  </div>
+</section>
+
+<section id="vfvp">
+  <div class="wrap r">
+    <p class="kicker"><span class="t-en">Voice libraries</span><span class="t-zh">声库格式</span></p>
+    <h2><span class="t-en">A voice library is a .vfvp — a plain 7z.</span><span class="t-zh">声库即 .vfvp——一个标准 7z。</span></h2>
+    <p class="sec-lede"><span class="t-en">One file carries the whole bank: acoustic + vocoder + phoneme map. Its info.json drives registration, so dropping it in models/ is enough to be discovered.</span>
+      <span class="t-zh">一个文件装下整个声库：声学模型 + 声码器 + 音素表。注册由 info.json 驱动——丢进 models/ 即可被发现。</span></p>
+
+    <div class="code">
+      <button class="copy" onclick="copy(this)">copy</button>
+<span class="cm"># voice.vfvp  (== standard .7z — open with 7-Zip / py7zr)</span>
+voice.vfvp
+├── model/
+│   ├── acoustic.pth      <span class="cm"># DiffSinger acoustic model</span>
+│   ├── vocoder.pth       <span class="cm"># vocoder</span>
+│   └── config.json       <span class="cm"># model structure config</span>
+├── info.json             <span class="cm"># id · name · lang · sample_rate · backend</span>
+└── phoneme_map.json      <span class="cm"># phoneme → token mapping</span></div>
+
+    <div class="code">
+      <button class="copy" onclick="copy(this)">copy</button>
+<span class="cm"># pack a folder that follows the layout above</span>
+<span class="pr">$</span> vf-cli package --source ./voice_dir --out voice.vfvp
+<span class="cm"># register it (reads info.json for you) — or just drop it into models/</span>
+<span class="pr">$</span> vf-cli models add voice.vfvp
+<span class="pr">$</span> vf-cli models
+<span class="cm"># requires: pip install py7zr   (lazy, optional — core stays stdlib-only)</span></div>
+    <p style="margin-top:4px;color:var(--muted);max-width:64ch"><span class="t-en">The engine routes any <code>ModelSpec.path</code> ending in <code>.vfvp</code> to <code>VfvpModelLoader</code>, extracts it to a temp dir and hands the backend canonical asset paths. Full flow in <code>examples/vfvp_demo.py</code>.</span>
+      <span class="t-zh">引擎会把以 <code>.vfvp</code> 结尾的 <code>ModelSpec.path</code> 路由给 <code>VfvpModelLoader</code>：解包到临时目录，把规范资产路径交给后端。完整流程见 <code>examples/vfvp_demo.py</code>。</span></p>
   </div>
 </section>
 
