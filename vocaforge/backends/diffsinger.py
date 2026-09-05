@@ -10,6 +10,7 @@ from typing import Any
 
 from ..core.backend import Backend
 from ..core.exceptions import VFMissingBackendError, VFSynthesisError
+from ..core.model_loader import ModelArtifact
 from ..models.manifest import ModelSpec
 
 
@@ -27,15 +28,16 @@ class DiffSingerAdapter(Backend):
             ) from exc
         return __import__("diffsinger")
 
-    def load_model(self, spec: ModelSpec) -> Any:
+    def load_model(self, artifact: ModelArtifact) -> Any:
+        spec = artifact.spec if isinstance(artifact, ModelArtifact) else artifact
         ds = self._require_diffsinger()
         if not ds:  # pragma: no cover
             raise VFMissingBackendError("diffsinger import returned empty")
         # --- integration point -------------------------------------------------
         # Real loading would build a diffsinger fs2/acoustic + vocoder pipeline from
-        # spec.path / spec.extra. We validate the spec and return a lightweight
+        # artifact.assets / spec.extra. We validate the spec and return a lightweight
         # handle; heavy GPU work happens lazily inside synthesize().
-        return {"spec": spec, "backend": self.name}
+        return {"spec": spec, "backend": self.name, "assets": getattr(artifact, "assets", {})}
 
     def synthesize(self, project: Any, handle: Any) -> bytes:
         # Real inference: diffsinger(fs2/ds) -> vocoder -> waveform.

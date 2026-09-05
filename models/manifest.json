@@ -7,7 +7,8 @@
       "path": "",
       "sample_rate": 44100,
       "lang": "zh",
-      "backend": "stub"
+      "backend": "stub",
+      "extra": {}
     }
   ]
 }

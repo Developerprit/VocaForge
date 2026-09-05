@@ -45,6 +45,10 @@ def _build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
 
+    arch = sub.add_parser("api", help="start the Architecture REST gateway (/api/v1)")
+    arch.add_argument("--host", default="0.0.0.0")
+    arch.add_argument("--port", type=int, default=8080)
+
     return p
 
 
@@ -134,6 +138,15 @@ def cmd_serve(args) -> int:
     return 0
 
 
+def cmd_api(args) -> int:
+    from ..api.arch import run_server as run_arch
+    try:
+        run_arch(host=args.host, port=args.port)
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -143,6 +156,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "synth": cmd_synth,
         "export": cmd_export,
         "serve": cmd_serve,
+        "api": cmd_api,
     }
     return handlers[args.cmd](args)
 

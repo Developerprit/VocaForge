@@ -61,6 +61,7 @@ with open("out.wav", "wb") as fh:
 | `vf-cli synth --model <id> --lyrics <text> --out <wav>` | 由歌词合成 |
 | `vf-cli export --project <json> --model <id> --out <wav>` | 由工程 JSON 导出 |
 | `vf-cli serve --host 127.0.0.1 --port 8765` | 启动 Agent RPC 服务 |
+| `vf-cli api --host 0.0.0.0 --port 8080` | 启动 Architecture REST 网关（`/api/v1`） |
 
 ```bash
 vf-cli synth --model stub-zh --lyrics "你好世界" --out hello.wav
@@ -84,6 +85,77 @@ vf-cli synth --model stub-zh --lyrics "你好世界" --out hello.wav
 | 200 | 200 | 成功（如合成完成） |
 
 动作：`info`、`models`、`resolve`/`load`、`synth`。
+
+## Architecture API（让别人接入）
+
+VocaForge 是个**能被别人在其项目之上构建**的框架。Architecture API 提供两个公开扩展点
+与一个版本化 REST 网关。
+
+**扩展点 1 — `Backend`（合成引擎）。** 实现它并在引擎上注册；不做自动发现，由你的项目
+显式接入。
+
+```python
+from vocaforge import Backend, VocaForgeEngine, ModelSpec, SynthProject
+
+class MyBackend(Backend):
+    name = "myengine"
+    api_version = "1.0"
+    def load_model(self, artifact):        # artifact: ModelArtifact
+        return {"spec": artifact.spec}
+    def synthesize(self, project, handle):
+        ...                                # -> 16-bit PCM WAV 字节
+    def unload(self, handle):
+        pass
+
+engine = VocaForgeEngine()
+engine.register_backend(MyBackend())
+engine.add_model(ModelSpec(id="x", name="X", type="synthesizer", path="", backend="myengine"))
+```
+
+**扩展点 2 — `ModelLoader`（模型存储解析器）。** 把「模型存在哪」与「如何推理」解耦。可实现
+从数据库、对象存储或加密包加载。
+
+```python
+from vocaforge import ModelLoader, ModelArtifact
+
+class DbModelLoader(ModelLoader):
+    name = "db"
+    def load(self, spec):  return ModelArtifact(spec=spec, assets={"root": spec.path})
+    def release(self, artifact):  pass
+
+engine.register_model_loader(DbModelLoader())
+```
+
+**REST 网关（`/api/v1`）。** 启动后让外部服务/网站通过 HTTP 接入（开启 CORS，OpenAPI 3.0 在
+`/api/v1/openapi.json`）。
+
+| 方法 | 路径 | 用途 | 未找到 |
+|------|------|------|--------|
+| GET | `/api/v1/health` | 存活 + 能力 | — |
+| GET | `/api/v1/version` | 框架版本 | — |
+| GET | `/api/v1/models` | 列出声库 | — |
+| POST | `/api/v1/models` | 注册声库 | — |
+| GET | `/api/v1/models/{id}` | 单个声库规格 | 404 |
+| POST | `/api/v1/resolve` | 解析 id → 规格 | 404 |
+| POST | `/api/v1/synth` | 合成 → WAV（原始或 JSON） | 404 |
+| GET | `/api/v1/openapi.json` | OpenAPI 文档 | — |
+
+```bash
+vf-cli api --host 0.0.0.0 --port 8080
+curl -X POST http://127.0.0.1:8080/api/v1/synth?format=wav \
+     -H 'Content-Type: application/json' \
+     -d '{"model":"stub-zh","lyrics":"你好世界"}' -o out.wav
+```
+
+**客户端 SDK**（零依赖），供 Python 远程接入：
+
+```python
+from vocaforge.client import VocaForgeClient
+client = VocaForgeClient("http://127.0.0.1:8080")
+wav: bytes = client.synth(model="stub-zh", lyrics="你好世界", as_wav=True)
+```
+
+完整契约、版本策略与接入指南见 [Architecture-API-zh.md](./Architecture-API-zh.md)。
 
 ## 注册真实 DiffSinger 声库
 
@@ -121,17 +193,18 @@ python build_vf_cli.py        # -> dist/vf-cli.exe
 ```
 VocaForge/
 ├── vocaforge/            # 框架库
-│   ├── core/             # 引擎、后端接口、异常
+│   ├── core/             # 引擎、后端接口、模型加载器、异常
 │   ├── backends/         # diffsinger 适配器 + stub 后端
 │   ├── models/           # 注册表 + manifest
 │   ├── synth/            # SynthProject（音符/歌词/时长）
-│   ├── api/              # Agent RPC（404/103 协议）
+│   ├── api/              # Agent RPC（404/103）+ Architecture REST（/api/v1）+ OpenAPI
 │   ├── cli/              # vf-cli
+│   ├── client.py         # VocaForgeClient（REST 客户端 SDK）
 │   └── util/             # WAV 编码
 ├── vf_cli.py             # 命令行入口
 ├── build_vf_cli.py       # Nuitka 打包脚本
 ├── models/manifest.json  # 本地声库注册表
-├── examples/             # 示例 + RPC 客户端
+├── examples/             # 示例 + RPC 客户端 + 接入示例
 ├── README.md / README-zh.md
 ├── LICENSE               # Available License
 └── index.html            # 对外公开落地页

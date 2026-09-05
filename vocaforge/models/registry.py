@@ -23,8 +23,12 @@ class ModelRegistry:
         self._specs.clear()
         if not os.path.exists(self.manifest_path):
             return
-        with open(self.manifest_path, "r", encoding="utf-8") as fh:
-            data = json.load(fh) or {}
+        try:
+            with open(self.manifest_path, "r", encoding="utf-8") as fh:
+                data = json.load(fh) or {}
+        except (ValueError, OSError):
+            # Empty or corrupt manifest -> start with no models.
+            return
         for entry in data.get("models", []):
             spec = ModelSpec.from_dict(entry)
             self._specs[spec.id] = spec

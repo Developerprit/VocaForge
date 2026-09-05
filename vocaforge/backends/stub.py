@@ -10,6 +10,7 @@ from typing import Any, List
 
 from ..core.backend import Backend
 from ..core.exceptions import VFSynthesisError
+from ..core.model_loader import ModelArtifact
 from ..models.manifest import ModelSpec
 from ..synth.project import SynthProject
 from ..util.audio import float_to_wav_bytes
@@ -18,8 +19,9 @@ from ..util.audio import float_to_wav_bytes
 class StubBackend(Backend):
     name = "stub"
 
-    def load_model(self, spec: ModelSpec) -> Any:
-        return {"spec": spec, "backend": self.name}
+    def load_model(self, artifact: ModelArtifact) -> Any:
+        spec = artifact.spec if isinstance(artifact, ModelArtifact) else artifact
+        return {"spec": spec, "backend": self.name, "assets": getattr(artifact, "assets", {})}
 
     def synthesize(self, project: SynthProject, handle: Any) -> bytes:
         if not isinstance(project, SynthProject):
