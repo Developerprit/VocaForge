@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vocaforge"
-version = "0.3.0"
+version = "0.4.0"
 description = "Pure Python framework wrapping DiffSinger for AI singing voice synthesis, with vf-cli for AI Agents."
 readme = "README.md"
 requires-python = ">=3.9"

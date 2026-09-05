@@ -24,6 +24,8 @@ Agent / CLI  ──JSON──►  VocaForgeEngine  ──►  模型注册表 (m
   零模型情况下也能完整运行与自测。
 - **对 Agent 友好。** `vf-cli`（英文输出）与 HTTP RPC（`POST /vf`）让 Agent 列声库、解析模型
   （缺失→404，命中→103）、合成音频。
+- **MIDI 进，歌声出。** 编辑或生成标准 MIDI 文件（标准库手写 SMF 编解码），再把旋律交给声库
+  后端渲染成歌声 WAV。
 - **零重依赖。** 核心仅用 Python 标准库；DiffSinger 与 `py7zr`（`.vfvp` 声库格式所需）均为
   可选懒加载依赖。
 
@@ -66,6 +68,7 @@ with open("out.wav", "wb") as fh:
 | `vf-cli export --project <json> --model <id> --out <wav>` | 由工程 JSON 导出 |
 | `vf-cli serve --host 127.0.0.1 --port 8765` | 启动 Agent RPC 服务 |
 | `vf-cli api --host 0.0.0.0 --port 8080` | 启动 Architecture REST 网关（`/api/v1`） |
+| `vf-cli midi info|gen|edit|render|export ...` | MIDI：查看 / 生成 / 编辑，渲染成歌声 |
 
 ```bash
 vf-cli synth --model stub-zh --lyrics "你好世界" --out hello.wav
@@ -129,6 +132,46 @@ engine.registry.spec_from_vfvp("voice.vfvp")   # -> 依据 info.json 自动填�
 > 需要 `pip install py7zr`（或 `pip install "vocaforge[vfvp]"`）。核心保持零依赖 —— 只在
 > 真正打包/加载 `.vfvp` 时才引入 7z 支持。完整流程见 `examples/vfvp_demo.py`
 > （打包 → 校验 → 加载 → 合成）。
+
+## MIDI —— 编辑 · 生成 · 渲染成歌声
+
+VocaForge 用**标准库手写的 SMF 编解码**（`vocaforge/midi/`）读写与编辑**标准 MIDI 文件**，
+再把旋律交给声库后端产出歌声 WAV。音符以**绝对秒**暴露；歌词以标准 lyric meta（`FF 05`）
+嵌入，round-trip 后仍保留。
+
+```python
+from vocaforge import (
+    MidiFile, MidiNote, read_midi, parse_seq,
+    midi_from_project, midi_to_project, render_midi,
+)
+from vocaforge.synth.project import Note, SynthProject
+
+# 从音名生成
+mf = MidiFile(notes=[MidiNote(midi=60, start=0.0, duration=0.5),
+                     MidiNote(midi=64, start=0.5, duration=0.5)])
+mf.write("hello.mid")
+
+# 编辑：移调 + 变速，再渲染成歌声 WAV
+mf = read_midi("hello.mid").transpose(2).set_tempo(130)
+wav: bytes = render_midi(mf, model="stub-zh", out="hello.wav")
+
+# 或与 SynthProject 互转（休止符 = 静音）
+proj = SynthProject(notes=[Note("小", 60, 0.5), Note("星", 60, 0.5)])
+render_midi(midi_from_project(proj, tempo_bpm=100), model="stub-zh", out="twinkle.wav")
+```
+
+```bash
+# 生成 -> 编辑 -> 渲染（全英文输出）
+vf-cli midi gen --notes "C4 0.4 E4 0.4 G4 0.4 C5 0.6" --lyrics "你好世界" \
+        --bpm 110 --name hello --out hello.mid
+vf-cli midi info  hello.mid
+vf-cli midi edit --midi hello.mid --transpose 2 --tempo 130 --out hi.mid
+vf-cli midi render --midi hello.mid --model stub-zh --out hello.wav
+vf-cli midi export --midi hello.mid --out hello.project.json   # 回到 SynthProject JSON
+```
+
+`MidiFile` 编辑方法：`transpose`、`set_tempo` / `retime`、`trim`、`set_lyrics`。
+完整 round-trip 演示见 `examples/midi_demo.py`。
 
 ## Architecture API（让别人接入）
 
@@ -248,6 +291,7 @@ VocaForge/
 │   ├── backends/         # diffsinger 适配器 + stub 后端
 │   ├── models/           # 注册表 + manifest + .vfvp 自动发现
 │   ├── synth/            # SynthProject（音符/歌词/时长）
+│   ├── midi/             # SMF 编解码（标准库）：MidiFile、编辑、工程桥、渲染
 │   ├── api/              # Agent RPC（404/103）+ Architecture REST（/api/v1）+ OpenAPI
 │   ├── cli/              # vf-cli
 │   ├── client.py         # VocaForgeClient（REST 客户端 SDK）

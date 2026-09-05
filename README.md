@@ -25,6 +25,8 @@ Agent / CLI  ──JSON──►  VocaForgeEngine  ──►  ModelRegistry (mod
   `StubBackend` keeps the framework fully runnable (and testable) with zero models.
 - **Agent-friendly.** `vf-cli` (English output) and an HTTP RPC (`POST /vf`) let an AI Agent list voice
   libraries, resolve a model (404 if missing, 103 if loaded), and synthesize audio.
+- **MIDI in, voice out.** Edit or generate Standard MIDI Files (stdlib SMF reader/writer), then
+  render the melody through a voice library into a singing WAV.
 - **Zero heavy deps.** Core uses only the Python standard library; DiffSinger and
   `py7zr` (needed for the `.vfvp` voice-library format) are optional, lazy imports.
 
@@ -67,6 +69,7 @@ with open("out.wav", "wb") as fh:
 | `vf-cli export --project <json> --model <id> --out <wav>` | Export from a project JSON |
 | `vf-cli serve --host 127.0.0.1 --port 8765` | Start the Agent RPC server |
 | `vf-cli api --host 0.0.0.0 --port 8080` | Start the Architecture REST gateway (`/api/v1`) |
+| `vf-cli midi info|gen|edit|render|export ...` | MIDI: inspect / generate / edit, render into voice |
 
 ```bash
 vf-cli synth --model stub-zh --lyrics "你好世界" --out hello.wav
@@ -133,6 +136,47 @@ archive to a temp dir and hands `Backend.load_model` canonical assets
 > Requires `pip install py7zr` (or `pip install "vocaforge[vfvp]"`). The core stays
 > dependency-free — 7z support is loaded only when a `.vfvp` is actually packed or loaded.
 > See `examples/vfvp_demo.py` for the full pack → validate → load → synthesize flow.
+
+## MIDI — edit · generate · render into voice
+
+VocaForge reads, writes and edits **Standard MIDI Files** with a hand-rolled, stdlib-only
+SMF codec (`vocaforge/midi/`), then hands the melody to a voice backend to produce a
+singing WAV. Notes are exposed in absolute seconds; lyrics are embedded as standard
+lyric meta events (`FF 05`) and survive round-trips.
+
+```python
+from vocaforge import (
+    MidiFile, MidiNote, read_midi, parse_seq,
+    midi_from_project, midi_to_project, render_midi,
+)
+from vocaforge.synth.project import Note, SynthProject
+
+# generate from note names
+mf = MidiFile(notes=[MidiNote(midi=60, start=0.0, duration=0.5),
+                     MidiNote(midi=64, start=0.5, duration=0.5)])
+mf.write("hello.mid")
+
+# edit: transpose + re-tempo, then render into a singing WAV
+mf = read_midi("hello.mid").transpose(2).set_tempo(130)
+wav: bytes = render_midi(mf, model="stub-zh", out="hello.wav")
+
+# or bridge with a SynthProject (rests become silence)
+proj = SynthProject(notes=[Note("小", 60, 0.5), Note("星", 60, 0.5)])
+render_midi(midi_from_project(proj, tempo_bpm=100), model="stub-zh", out="twinkle.wav")
+```
+
+```bash
+# generate -> edit -> render (all English output)
+vf-cli midi gen --notes "C4 0.4 E4 0.4 G4 0.4 C5 0.6" --lyrics "你好世界" \
+        --bpm 110 --name hello --out hello.mid
+vf-cli midi info  hello.mid
+vf-cli midi edit --midi hello.mid --transpose 2 --tempo 130 --out hi.mid
+vf-cli midi render --midi hello.mid --model stub-zh --out hello.wav
+vf-cli midi export --midi hello.mid --out hello.project.json   # back to SynthProject JSON
+```
+
+`MidiFile` editing methods: `transpose`, `set_tempo` / `retime`, `trim`, `set_lyrics`.
+See `examples/midi_demo.py` for a full round-trip demo.
 
 ## Architecture API (let others integrate)
 
@@ -253,6 +297,7 @@ VocaForge/
 │   ├── backends/         # diffsinger adapter + stub backend
 │   ├── models/           # registry + manifest + .vfvp discovery
 │   ├── synth/            # SynthProject (notes/lyrics/durations)
+│   ├── midi/             # SMF codec (stdlib): MidiFile, editors, project bridge, render
 │   ├── api/              # Agent RPC (404/103) + Architecture REST (/api/v1) + OpenAPI
 │   ├── cli/              # vf-cli
 │   ├── client.py         # VocaForgeClient (REST client SDK)

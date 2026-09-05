@@ -60,6 +60,40 @@ def _build_parser() -> argparse.ArgumentParser:
     arch.add_argument("--host", default="0.0.0.0")
     arch.add_argument("--port", type=int, default=8080)
 
+    midi = sub.add_parser("midi", help="MIDI: edit / generate / render into voice")
+    midi_sub = midi.add_subparsers(dest="midi_action", required=True)
+
+    m_info = midi_sub.add_parser("info", help="show MIDI file info")
+    m_info.add_argument("midi", help="path to a .mid file")
+
+    m_gen = midi_sub.add_parser("gen", help="generate a .mid file")
+    m_gen.add_argument("--notes", default=None, help="pitch duration pairs, e.g. 'C4 0.4 E4 0.4 G4 0.4'")
+    m_gen.add_argument("--project", default=None, help="generate from a project JSON instead of --notes")
+    m_gen.add_argument("--lyrics", default=None, help="optional lyrics (one char per note)")
+    m_gen.add_argument("--bpm", type=float, default=120.0, help="tempo in BPM")
+    m_gen.add_argument("--name", default="melody")
+    m_gen.add_argument("--out", default=None, help="output .mid path (default: <name>.mid)")
+
+    m_edit = midi_sub.add_parser("edit", help="edit a .mid file")
+    m_edit.add_argument("--midi", required=True, help="input .mid path")
+    m_edit.add_argument("--out", required=True, help="output .mid path")
+    m_edit.add_argument("--transpose", type=int, default=0, help="shift notes by semitones")
+    m_edit.add_argument("--tempo", type=float, default=None, help="new BPM")
+    m_edit.add_argument("--rate", type=float, default=None, help="time multiplier (>1 slows down)")
+    m_edit.add_argument("--clip", default=None, help="keep window [start:end] in seconds, e.g. 1.5:3")
+    m_edit.add_argument("--lyrics", default=None, help="reassign lyrics (one char per note)")
+
+    m_render = midi_sub.add_parser("render", help="render a MIDI into singing WAV via a voice model")
+    m_render.add_argument("--midi", required=True, help="input .mid path")
+    m_render.add_argument("--model", default="stub-zh", help="voice library id (default: stub-zh)")
+    m_render.add_argument("--lyrics", default=None, help="optional lyrics (one char per note)")
+    m_render.add_argument("--out", default=None, help="output WAV path (default: <midi>.wav)")
+
+    m_export = midi_sub.add_parser("export", help="export a MIDI to a project JSON")
+    m_export.add_argument("--midi", required=True, help="input .mid path")
+    m_export.add_argument("--lyrics", default=None, help="optional lyrics (one char per note)")
+    m_export.add_argument("--out", default=None, help="output project JSON path")
+
     return p
 
 
@@ -205,6 +239,119 @@ def cmd_api(args) -> int:
     return 0
 
 
+# ---- midi ----------------------------------------------------------------
+def cmd_midi(args) -> int:
+    fn = {
+        "info": _cmd_midi_info,
+        "gen": _cmd_midi_gen,
+        "edit": _cmd_midi_edit,
+        "render": _cmd_midi_render,
+        "export": _cmd_midi_export,
+    }[args.midi_action]
+    return fn(args)
+
+
+def _cmd_midi_info(args) -> int:
+    from ..midi import MidiError, read_midi
+
+    try:
+        mf = read_midi(args.midi)
+    except (MidiError, OSError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    _print_json(mf.to_dict())
+    return 0
+
+
+def _cmd_midi_gen(args) -> int:
+    from ..midi import MidiError, MidiFile, MidiNote, midi_from_project, parse_seq
+
+    try:
+        if args.project:
+            mf = midi_from_project(_load_project_file(args.project),
+                                   tempo_bpm=args.bpm, name=args.name)
+        elif args.notes:
+            seq = parse_seq(args.notes)
+            cursor = 0.0
+            mf = MidiFile(tempo=int(60_000_000 / args.bpm), name=args.name)
+            for midi, dur in seq:
+                mf.notes.append(MidiNote(midi=midi, start=cursor, duration=dur))
+                cursor += dur
+            if args.lyrics:
+                mf.set_lyrics(args.lyrics)
+        else:
+            print("error: provide --notes or --project", file=sys.stderr)
+            return 1
+        out = args.out or f"{args.name}.mid"
+        mf.write(out)
+    except (MidiError, ValueError, OSError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    _print_json({"ok": True, "file": out, "name": mf.name, "notes": len(mf.notes),
+                 "bpm": round(mf.bpm, 2), "duration": round(mf.duration, 3)})
+    return 0
+
+
+def _cmd_midi_edit(args) -> int:
+    from ..midi import MidiError, read_midi
+
+    try:
+        mf = read_midi(args.midi)
+        if args.transpose:
+            mf.transpose(args.transpose)
+        if args.rate is not None:
+            mf.retime(args.rate)
+        if args.tempo is not None:
+            mf.set_tempo(args.tempo)
+        if args.clip:
+            parts = args.clip.split(":")
+            start = float(parts[0])
+            end = float(parts[1]) if len(parts) > 1 else None
+            mf.trim(start, end)
+        if args.lyrics:
+            mf.set_lyrics(args.lyrics)
+        mf.write(args.out)
+    except (MidiError, ValueError, OSError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    _print_json({"ok": True, "file": args.out, "name": mf.name, "notes": len(mf.notes),
+                 "bpm": round(mf.bpm, 2), "duration": round(mf.duration, 3)})
+    return 0
+
+
+def _cmd_midi_render(args) -> int:
+    from ..midi import render_midi
+
+    out = args.out or (os.path.splitext(args.midi)[0] + ".wav")
+    try:
+        audio = render_midi(args.midi, model=args.model, lyrics=args.lyrics, out=out)
+    except VocaForgeError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    except Exception as e:  # noqa: BLE001
+        print(f"error: {type(e).__name__}: {e}", file=sys.stderr)
+        return 1
+    print(f"ok: rendered {len(audio)} bytes to {out}  (model: {args.model})")
+    return 0
+
+
+def _cmd_midi_export(args) -> int:
+    from ..midi import MidiError, midi_to_project, read_midi
+
+    try:
+        mf = read_midi(args.midi)
+        base = os.path.splitext(os.path.basename(args.midi))[0]
+        proj = midi_to_project(mf, lyrics=args.lyrics, name=base)
+        out = args.out or (os.path.splitext(args.midi)[0] + ".project.json")
+        with open(out, "w", encoding="utf-8") as fh:
+            json.dump(proj.to_dict(), fh, ensure_ascii=False, indent=2)
+    except (MidiError, ValueError, OSError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    print(f"ok: exported {len(proj.notes)} notes to {out}")
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -216,6 +363,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "export": cmd_export,
         "serve": cmd_serve,
         "api": cmd_api,
+        "midi": cmd_midi,
     }
     return handlers[args.cmd](args)
 

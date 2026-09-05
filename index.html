@@ -187,6 +187,7 @@
       <a href="#cli">vf-cli</a>
       <a href="#rpc"><span class="t-en">Agent RPC</span><span class="t-zh">Agent 接口</span></a>
       <a href="#vfvp">.vfvp</a>
+      <a href="#midi">MIDI</a>
       <a href="#api"><span class="t-en">Architecture API</span><span class="t-zh">架构 API</span></a>
       <a href="#start"><span class="t-en">Quick start</span><span class="t-zh">快速开始</span></a>
     </nav>
@@ -259,7 +260,7 @@
       <div class="row"><div class="n">01</div><div><h3><span class="t-en">Console-free library</span><span class="t-zh">无控制台库</span></h3><p><span class="t-en">import vocaforge from any process. No window, no TTY.</span><span class="t-zh">任何进程里 import vocaforge，不弹窗、不占终端。</span></p></div></div>
       <div class="row"><div class="n">02</div><div><h3><span class="t-en">Pluggable backend</span><span class="t-zh">可插拔后端</span></h3><p><span class="t-en">Wire real DiffSinger on GPU; stub runs with zero models.</span><span class="t-zh">GPU 上接真实 DiffSinger；无模型时用 stub 照常跑。</span></p></div></div>
       <div class="row"><div class="n">03</div><div><h3><span class="t-en">.vfvp libraries</span><span class="t-zh">.vfvp 声库</span></h3><p><span class="t-en">A voice library ships as one standard 7z file — pack it, drop it in, it registers itself.</span><span class="t-zh">声库以单个标准 7z 包分发——打包、丢进目录、自动注册。</span></p></div></div>
-      <div class="row"><div class="n">04</div><div><h3><span class="t-en">vf-cli for agents</span><span class="t-zh">供 Agent 的 vf-cli</span></h3><p><span class="t-en">English-output commands: info / models(add·remove) / package / synth / export / serve / api.</span><span class="t-zh">英文输出命令：info / models(add·remove) / package / synth / export / serve / api。</span></p></div></div>
+      <div class="row"><div class="n">04</div><div><h3><span class="t-en">vf-cli for agents</span><span class="t-zh">供 Agent 的 vf-cli</span></h3><p><span class="t-en">English-output commands: info / models(add·remove) / package / synth / export / serve / api / midi.</span><span class="t-zh">英文输出命令：info / models(add·remove) / package / synth / export / serve / api / midi。</span></p></div></div>
       <div class="row"><div class="n">05</div><div><h3><span class="t-en">404 / 103 RPC</span><span class="t-zh">404 / 103 接口</span></h3><p><span class="t-en">Agents resolve a model: 404 absent, 103 loaded, 200 done.</span><span class="t-zh">Agent 解析声库：缺失 404、命中 103、完成 200。</span></p></div></div>
       <div class="row"><div class="n">06</div><div><h3><span class="t-en">Zero heavy deps</span><span class="t-zh">零重依赖</span></h3><p><span class="t-en">Core is stdlib only; DiffSinger and py7zr (for .vfvp) are lazy, optional imports.</span><span class="t-zh">核心仅标准库；DiffSinger 与 py7zr（.vfvp 用）均为可选懒加载。</span></p></div></div>
     </div>
@@ -269,7 +270,7 @@
 <section id="cli">
   <div class="wrap r">
     <p class="kicker">vf-cli</p>
-    <h2><span class="t-en">Seven commands. English output.</span><span class="t-zh">七个命令，英文输出。</span></h2>
+    <h2><span class="t-en">Eight commands. English output.</span><span class="t-zh">八个命令，英文输出。</span></h2>
     <div class="code">
       <button class="copy" onclick="copy(this)">copy</button>
 <span class="pr">$</span> vf-cli info                      <span class="cm"># version + backend availability</span>
@@ -281,7 +282,9 @@
 <span class="pr">$</span> vf-cli export --project proj.json \
         --model stub-zh --out out.wav
 <span class="pr">$</span> vf-cli serve --host 127.0.0.1 --port 8765
-<span class="pr">$</span> vf-cli api   --host 0.0.0.0  --port 8080  <span class="cm"># Architecture REST gateway</span></div>
+<span class="pr">$</span> vf-cli api   --host 0.0.0.0  --port 8080  <span class="cm"># Architecture REST gateway</span>
+<span class="pr">$</span> vf-cli midi gen --notes "C4 0.4 E4 0.4" --out a.mid
+<span class="pr">$</span> vf-cli midi render --midi a.mid --model stub-zh --out a.wav</div>
   </div>
 </section>
 
@@ -385,6 +388,34 @@ voice.vfvp
 <span class="cm"># requires: pip install py7zr   (lazy, optional — core stays stdlib-only)</span></div>
     <p style="margin-top:4px;color:var(--muted);max-width:64ch"><span class="t-en">The engine routes any <code>ModelSpec.path</code> ending in <code>.vfvp</code> to <code>VfvpModelLoader</code>, extracts it to a temp dir and hands the backend canonical asset paths. Full flow in <code>examples/vfvp_demo.py</code>.</span>
       <span class="t-zh">引擎会把以 <code>.vfvp</code> 结尾的 <code>ModelSpec.path</code> 路由给 <code>VfvpModelLoader</code>：解包到临时目录，把规范资产路径交给后端。完整流程见 <code>examples/vfvp_demo.py</code>。</span></p>
+  </div>
+</section>
+
+<section id="midi">
+  <div class="wrap r">
+    <p class="kicker"><span class="t-en">MIDI</span><span class="t-zh">MIDI</span></p>
+    <h2><span class="t-en">Edit it. Sing it.</span><span class="t-zh">改一改，唱出来。</span></h2>
+    <p class="sec-lede"><span class="t-en">A stdlib-only SMF codec reads, writes and edits standard MIDI — then the melody goes through a voice library and comes out as a singing WAV.</span>
+      <span class="t-zh">标准库手写的 SMF 编解码读写、编辑标准 MIDI——旋律交给声库后端，出来就是歌声 WAV。</span></p>
+    <div class="code">
+      <button class="copy" onclick="copy(this)">copy</button>
+<span class="cm"># generate -> edit -> render into voice</span>
+<span class="pr">$</span> vf-cli midi gen --notes "C4 0.4 E4 0.4 G4 0.4 C5 0.6" \
+        --lyrics "你好世界" --bpm 110 --name hello --out hello.mid
+<span class="pr">$</span> vf-cli midi edit --midi hello.mid --transpose 2 \
+        --tempo 130 --out hi.mid
+<span class="pr">$</span> vf-cli midi render --midi hello.mid --model stub-zh --out hello.wav</div>
+    <div class="code">
+      <button class="copy" onclick="copy(this)">copy</button>
+<span class="pr">from</span> vocaforge <span class="pr">import</span> MidiFile, MidiNote, read_midi, render_midi
+
+mf = MidiFile(notes=[MidiNote(midi=60, start=0.0, duration=0.5),
+                     MidiNote(midi=64, start=0.5, duration=0.5)])
+mf.write("hello.mid")                          <span class="cm"># standard SMF, no deps</span>
+wav = read_midi("hello.mid").transpose(2).set_tempo(130)
+render_midi(mf, model="stub-zh", out="hello.wav")   <span class="cm"># MIDI -> singing voice</span></div>
+    <p style="margin-top:4px;color:var(--muted);max-width:64ch"><span class="t-en">Notes live in absolute seconds; lyrics are embedded as standard <code>FF 05</code> lyric meta and survive round-trips. See <code>examples/midi_demo.py</code>.</span>
+      <span class="t-zh">音符以绝对秒保存；歌词以标准 <code>FF 05</code> lyric meta 嵌入并可回读。完整演示见 <code>examples/midi_demo.py</code>。</span></p>
   </div>
 </section>
 

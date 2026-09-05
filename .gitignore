@@ -14,6 +14,10 @@ examples/*.wav
 *.vfvp
 examples/*.vfvp
 
+# Generated MIDI / project exports (produced by demos / midi commands)
+*.mid
+*.project.json
+
 # Local workspace memory (not part of the project)
 .workbuddy/
 
