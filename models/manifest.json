@@ -1,0 +1,13 @@
+{
+  "models": [
+    {
+      "id": "stub-zh",
+      "name": "Stub Chinese (test)",
+      "type": "synthesizer",
+      "path": "",
+      "sample_rate": 44100,
+      "lang": "zh",
+      "backend": "stub"
+    }
+  ]
+}

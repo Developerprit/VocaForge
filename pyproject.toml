@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vocaforge"
+version = "0.1.0"
+description = "Pure Python framework wrapping DiffSinger for AI singing voice synthesis, with vf-cli for AI Agents."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Available License" }
+dependencies = []
+
+[project.scripts]
+vf-cli = "vocaforge.cli.vf_cli:main"
+
+[tool.setuptools.packages.find]
+include = ["vocaforge*"]

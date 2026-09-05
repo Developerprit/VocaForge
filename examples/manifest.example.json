@@ -1,0 +1,23 @@
+{
+  "models": [
+    {
+      "id": "stub-zh",
+      "name": "Stub Chinese (test)",
+      "type": "synthesizer",
+      "path": "",
+      "sample_rate": 44100,
+      "lang": "zh",
+      "backend": "stub"
+    },
+    {
+      "id": "my-diffsinger-lib",
+      "name": "My DiffSinger Library",
+      "type": "synthesizer",
+      "path": "E:/models/my_lib",
+      "sample_rate": 44100,
+      "lang": "zh",
+      "backend": "diffsinger",
+      "extra": { "acoustic": "exp/acoustic", "vocoder": "exp/vocoder" }
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+build/
+dist/
+
+# Generated audio (produced by self-tests / synth)
+*.wav
+examples/*.wav
+
+# Local workspace memory (not part of the project)
+.workbuddy/
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
